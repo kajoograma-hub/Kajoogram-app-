@@ -12,7 +12,7 @@ interface AuthProps {
 
 const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<AuthTab>('signup');
+  const [tab, setTab] = useState<AuthTab>('login');
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     username: '',
