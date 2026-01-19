@@ -3,8 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, AuthTab } from '../types';
 import { Mail, Lock, User as UserIcon, Phone, ChevronRight, ArrowLeft, Loader2 } from 'lucide-react';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { auth } from '../firebase';
+import { supabase } from '../supabase';
 
 interface AuthProps {
   onAuthSuccess: (user: Partial<User>) => void;
@@ -34,15 +33,29 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
           return;
         }
 
-        // Create User in Firebase
-        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
-        
-        // Update Firebase Profile with Username
-        await updateProfile(userCredential.user, {
-          displayName: formData.username
+        // SignUp with Supabase
+        const { data, error } = await supabase.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            data: {
+              username: formData.username,
+              mobile: formData.mobile
+            }
+          }
         });
 
-        // Update local state (preserves mobile number which isn't stored in basic Firebase Auth)
+        if (error) throw error;
+
+        // If signup requires email confirmation (Supabase default), handle gracefully
+        if (data.user && !data.session) {
+           alert("Account created! Please check your email to confirm your account before logging in.");
+           setTab('login');
+           setLoading(false);
+           return;
+        }
+
+        // Update local state (preserves mobile number)
         onAuthSuccess({ 
           username: formData.username, 
           email: formData.email, 
@@ -51,21 +64,22 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
         
         navigate('/setup');
       } else {
-        // Login User
-        await signInWithEmailAndPassword(auth, formData.email, formData.password);
-        // App.tsx listener will handle state update
+        // Login with Supabase
+        const { error } = await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password
+        });
+
+        if (error) throw error;
+        
+        // App.tsx listener will handle state update automatically
         navigate('/home');
       }
     } catch (error: any) {
       console.error("Auth Error:", error);
       let errorMessage = "Authentication failed. Please try again.";
       
-      // Map Firebase error codes to user-friendly messages
-      if (error.code === 'auth/email-already-in-use') errorMessage = "That email is already in use.";
-      else if (error.code === 'auth/invalid-credential') errorMessage = "Invalid email or password.";
-      else if (error.code === 'auth/user-not-found') errorMessage = "No account found with this email.";
-      else if (error.code === 'auth/wrong-password') errorMessage = "Incorrect password.";
-      else if (error.code === 'auth/weak-password') errorMessage = "Password should be at least 6 characters.";
+      if (error.message) errorMessage = error.message;
       
       alert(errorMessage);
     } finally {

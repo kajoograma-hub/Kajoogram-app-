@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from './firebase';
+import { supabase } from './supabase';
 import SplashScreen from './pages/SplashScreen';
 import GetStarted from './pages/GetStarted';
 import Auth from './pages/Auth';
@@ -53,6 +52,9 @@ import { FriendContextProvider } from './context/FriendContext';
 import { PostContextProvider } from './context/PostContext';
 import { User } from './types';
 
+// Update this version string to force a cache clear on client devices
+const APP_VERSION = '1.0.4-supabase-connect';
+
 interface ProtectedRouteProps {
   isLoggedIn: boolean;
   children?: React.ReactNode;
@@ -83,6 +85,22 @@ const App: React.FC = () => {
     isAdmin: false
   });
 
+  // Version Check & Stale Data Cleanup
+  useEffect(() => {
+    const currentVersion = localStorage.getItem('app_version');
+    if (currentVersion !== APP_VERSION) {
+      console.log('New version detected. Cleaning up stale data...');
+      
+      // Clear specific context storage keys that might hold outdated schema/data
+      localStorage.removeItem('kajoogram_content_pages');
+      localStorage.removeItem('kajoogram_reports');
+      localStorage.removeItem('kajoogram_notifications');
+      
+      // Update version
+      localStorage.setItem('app_version', APP_VERSION);
+    }
+  }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowSplash(false);
@@ -90,21 +108,37 @@ const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Firebase Auth Listener
+  // Supabase Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        // Check for admin email
-        const isAdmin = firebaseUser.email === 'patwaadmin@gmail.com';
-        
+    // 1. Check active session immediately
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        const isAdmin = session.user.email === 'patwaadmin@gmail.com';
         setUser(prev => ({
           ...prev,
-          id: firebaseUser.uid,
-          username: firebaseUser.displayName || prev.username || 'User',
-          email: firebaseUser.email || '',
+          id: session.user.id,
+          username: session.user.user_metadata?.username || prev.username || 'User',
+          email: session.user.email || '',
           isLoggedIn: true,
           isAdmin: isAdmin,
-          profilePhoto: prev.profilePhoto || firebaseUser.photoURL || undefined
+          // Supabase stores extra data in user_metadata
+          profilePhoto: session.user.user_metadata?.avatar_url || prev.profilePhoto || undefined
+        }));
+      }
+    });
+
+    // 2. Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const isAdmin = session.user.email === 'patwaadmin@gmail.com';
+        setUser(prev => ({
+          ...prev,
+          id: session.user.id,
+          username: session.user.user_metadata?.username || prev.username || 'User',
+          email: session.user.email || '',
+          isLoggedIn: true,
+          isAdmin: isAdmin,
+          profilePhoto: session.user.user_metadata?.avatar_url || prev.profilePhoto || undefined
         }));
       } else {
         setUser({
@@ -117,7 +151,7 @@ const App: React.FC = () => {
       }
     });
 
-    return () => unsubscribe();
+    return () => subscription.unsubscribe();
   }, []);
 
   if (showSplash) {
@@ -207,7 +241,7 @@ const App: React.FC = () => {
                                 <Route path="/profile" element={
                                   <ProtectedRoute isLoggedIn={user.isLoggedIn}>
                                     <Profile user={user} onLogout={() => {
-                                      signOut(auth).catch((error) => console.error("Sign out error", error));
+                                      supabase.auth.signOut().catch((error) => console.error("Sign out error", error));
                                     }} />
                                   </ProtectedRoute>
                                 } />
