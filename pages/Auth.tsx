@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, AuthTab } from '../types';
 import { Mail, Lock, User as UserIcon, Phone, ChevronRight, ArrowLeft, Loader2 } from 'lucide-react';
-import { supabase } from '../supabase';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { auth } from '../firebase';
 
 interface AuthProps {
   onAuthSuccess: (user: Partial<User>) => void;
@@ -33,44 +34,22 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
           return;
         }
 
-        // SignUp with Supabase
-        const { data, error } = await supabase.auth.signUp({
-          email: formData.email,
-          password: formData.password,
-          options: {
-            data: {
-              username: formData.username,
-              mobile: formData.mobile
-            }
-          }
-        });
-
-        if (error) throw error;
-
-        // If signup requires email confirmation (Supabase default), handle gracefully
-        if (data.user && !data.session) {
-           alert("Account created! Please check your email to confirm your account before logging in.");
-           setTab('login');
-           setLoading(false);
-           return;
-        }
+        // SignUp with Firebase
+        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+        const user = userCredential.user;
 
         // Update local state (preserves mobile number)
         onAuthSuccess({ 
           username: formData.username, 
           email: formData.email, 
-          mobile: formData.mobile 
+          mobile: formData.mobile,
+          id: user.uid
         });
         
         navigate('/setup');
       } else {
-        // Login with Supabase
-        const { error } = await supabase.auth.signInWithPassword({
-          email: formData.email,
-          password: formData.password
-        });
-
-        if (error) throw error;
+        // Login with Firebase
+        await signInWithEmailAndPassword(auth, formData.email, formData.password);
         
         // App.tsx listener will handle state update automatically
         navigate('/home');
@@ -79,6 +58,9 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
       console.error("Auth Error:", error);
       let errorMessage = "Authentication failed. Please try again.";
       
+      if (error.code === 'auth/wrong-password') errorMessage = 'Incorrect password.';
+      if (error.code === 'auth/user-not-found') errorMessage = 'No user found with this email.';
+      if (error.code === 'auth/email-already-in-use') errorMessage = 'Email is already registered.';
       if (error.message) errorMessage = error.message;
       
       alert(errorMessage);
@@ -88,10 +70,6 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
   };
 
   const handleMagicLink = () => {
-    if (!formData.email) {
-      alert("Please enter your email to receive a login link.");
-      return;
-    }
     alert(`Magic login link feature is coming soon. Please use password to login.`);
   };
 

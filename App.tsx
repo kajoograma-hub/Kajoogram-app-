@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { supabase } from './supabase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { auth } from './firebase';
 import SplashScreen from './pages/SplashScreen';
 import GetStarted from './pages/GetStarted';
 import Auth from './pages/Auth';
@@ -53,7 +54,7 @@ import { PostContextProvider } from './context/PostContext';
 import { User } from './types';
 
 // Update this version string to force a cache clear on client devices
-const APP_VERSION = '1.0.4-supabase-connect';
+const APP_VERSION = '1.0.5-firebase-auth';
 
 interface ProtectedRouteProps {
   isLoggedIn: boolean;
@@ -108,37 +109,21 @@ const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Supabase Auth Listener
+  // Firebase Auth Listener
   useEffect(() => {
-    // 1. Check active session immediately
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const isAdmin = session.user.email === 'patwaadmin@gmail.com';
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        const isAdmin = firebaseUser.email === 'patwaadmin@gmail.com';
+        
         setUser(prev => ({
           ...prev,
-          id: session.user.id,
-          username: session.user.user_metadata?.username || prev.username || 'User',
-          email: session.user.email || '',
+          id: firebaseUser.uid,
+          // Use displayName if available, else fallback to part of email or existing state
+          username: firebaseUser.displayName || prev.username || firebaseUser.email?.split('@')[0] || 'User',
+          email: firebaseUser.email || '',
           isLoggedIn: true,
           isAdmin: isAdmin,
-          // Supabase stores extra data in user_metadata
-          profilePhoto: session.user.user_metadata?.avatar_url || prev.profilePhoto || undefined
-        }));
-      }
-    });
-
-    // 2. Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        const isAdmin = session.user.email === 'patwaadmin@gmail.com';
-        setUser(prev => ({
-          ...prev,
-          id: session.user.id,
-          username: session.user.user_metadata?.username || prev.username || 'User',
-          email: session.user.email || '',
-          isLoggedIn: true,
-          isAdmin: isAdmin,
-          profilePhoto: session.user.user_metadata?.avatar_url || prev.profilePhoto || undefined
+          profilePhoto: prev.profilePhoto || firebaseUser.photoURL || undefined
         }));
       } else {
         setUser({
@@ -151,7 +136,7 @@ const App: React.FC = () => {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
 
   if (showSplash) {
@@ -241,7 +226,7 @@ const App: React.FC = () => {
                                 <Route path="/profile" element={
                                   <ProtectedRoute isLoggedIn={user.isLoggedIn}>
                                     <Profile user={user} onLogout={() => {
-                                      supabase.auth.signOut().catch((error) => console.error("Sign out error", error));
+                                      signOut(auth).catch((error) => console.error("Sign out error", error));
                                     }} />
                                   </ProtectedRoute>
                                 } />
